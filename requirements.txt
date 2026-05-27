@@ -1,2 +1,5 @@
 # This fixed version runs in the browser with PyScript and CDN JavaScript libraries.
 # No Python server packages are required for local static hosting.
+pandas
+matplotlib
+plotly
