@@ -1,0 +1,139 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>South Sudan H3 Explorer</title>
+
+<link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/deck.gl@8.9.36/dist.min.js"></script>
+<script src="https://unpkg.com/h3-js@4.1.0/dist/h3-js.umd.js"></script>
+
+<link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css" />
+<script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
+
+<style>
+  html, body { height: 100%; }
+  body { margin: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  #app { display: grid; grid-template-columns: 340px 1fr; height: 100vh; }
+  #sidebar { padding: 12px; border-right: 1px solid #ddd; overflow: auto; box-sizing: border-box; }
+  #map-wrap { position: relative; min-width: 0; }
+  #deck-canvas { position: absolute; inset: 0; }
+  label { display: block; margin-top: 12px; font-weight: 600; font-size: 0.9rem; }
+  input, select, button { width: 100%; padding: 8px; margin-top: 6px; box-sizing: border-box; }
+  button { cursor: pointer; font-weight: 700; }
+  #status { margin-top: 12px; padding: 8px; background: #f5f5f5; border-radius: 6px; font-size: 0.9rem; }
+</style>
+</head>
+
+<body>
+<div id="app">
+  <div id="sidebar">
+    <h2>South Sudan H3 Explorer</h2>
+
+    <label for="res">H3 resolution</label>
+    <select id="res">
+      <option value="6" selected>Resolution 6</option>
+      <option value="5">Resolution 5</option>
+    </select>
+
+    <label for="popcsv">Total population CSV</label>
+    <input id="popcsv" value="worldpop_2026_h3res6.csv" />
+
+    <label for="acledKey">ACLED API key (optional)</label>
+    <input id="acledKey" placeholder="ACLED key" />
+
+    <label for="hdxToken">HDX token (optional)</label>
+    <input id="hdxToken" placeholder="HDX token" />
+
+    <label for="scaleTotal">Scale (total pop)</label>
+    <input id="scaleTotal" type="number" value="0.002" step="0.0001" />
+
+    <label for="scaleIdp">Scale (IDP pop)</label>
+    <input id="scaleIdp" type="number" value="0.006" step="0.0001" />
+
+    <label for="scaleConflict">Scale (conflict)</label>
+    <input id="scaleConflict" type="number" value="2.0" step="0.0001" />
+
+    <button id="run" type="button">Load + Render</button>
+    <div id="status">Starting PyScript...</div>
+  </div>
+
+  <div id="map-wrap">
+    <div id="deck-canvas"></div>
+  </div>
+</div>
+
+<script>
+let deckgl;
+const MAP_STYLE = "https://demotiles.maplibre.org/style.json";
+
+function metricColor(props) {
+  const total = Number(props.total_pop || 0);
+  const idp = Number(props.idp_pop || 0);
+  const conflict = Number(props.conflict_metric || 0);
+  if (conflict > 0) return [210, 80, 60, 170];
+  if (idp > 0) return [245, 166, 35, 170];
+  if (total > 0) return [60, 120, 200, 160];
+  return [180, 190, 200, 70];
+}
+
+function renderDeck(geojson, facilities, viewState) {
+  const {GeoJsonLayer, ScatterplotLayer} = deck;
+
+  const hex = new GeoJsonLayer({
+    id: "h3-cells",
+    data: geojson,
+    pickable: true,
+    stroked: true,
+    filled: true,
+    extruded: true,
+    wireframe: false,
+    getElevation: f =>
+      Number(f.properties.total_elev || 0) +
+      Number(f.properties.idp_elev || 0) +
+      Number(f.properties.conflict_elev || 0),
+    getFillColor: f => metricColor(f.properties || {}),
+    getLineColor: [80, 80, 80, 80],
+    lineWidthMinPixels: 0.25,
+  });
+
+  const healthFacilities = new ScatterplotLayer({
+    id: "health-facilities",
+    data: facilities,
+    pickable: true,
+    getPosition: d => [Number(d.lon), Number(d.lat)],
+    getRadius: 120,
+    radiusMinPixels: 2,
+    radiusMaxPixels: 10,
+    getFillColor: [0, 0, 0, 220],
+  });
+
+  const props = {
+    container: "deck-canvas",
+    map: maplibregl,
+    mapStyle: MAP_STYLE,
+    controller: true,
+    layers: [hex, healthFacilities],
+    getTooltip: ({object, layer}) => {
+      if (!object) return null;
+      if (layer && layer.id === "health-facilities") {
+        return `${object.name || "Health facility"}\n${object.type || ""}\n${object.county || ""}, ${object.state || ""}\n${object.functional || ""}`;
+      }
+      const p = object.properties || {};
+      return `H3: ${p.index || ""}\nTotal pop: ${p.total_pop || 0}\nIDP pop: ${p.idp_pop || 0}\nConflict metric: ${p.conflict_metric || 0}`;
+    },
+  };
+
+  if (!deckgl) {
+    deckgl = new deck.DeckGL({...props, initialViewState: viewState});
+  } else {
+    deckgl.setProps({...props, viewState});
+  }
+}
+</script>
+
+<script type="py" src="./app_fixed.py"></script>
+</body>
+</html>
